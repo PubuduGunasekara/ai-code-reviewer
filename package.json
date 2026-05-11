@@ -4,20 +4,24 @@
   "description": "> AI-powered pull request reviewer using GPT-4o + GitHub OAuth + React",
   "main": "index.js",
   "scripts": {
-  "test": "echo \"Error: no test specified\" && exit 1",
-  "start": "node src/index.js",
-  "dev": "nodemon src/index.js",
-  "migrate": "node src/db/migrate.js"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "migrate": "node src/db/migrate.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-session": "^1.19.0",
     "helmet": "^8.1.0",
     "morgan": "^1.10.1",
+    "passport": "^0.7.0",
+    "passport-github2": "^0.1.12",
     "pg": "^8.20.0"
   },
   "devDependencies": {
