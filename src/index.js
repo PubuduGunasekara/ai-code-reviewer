@@ -10,6 +10,7 @@ const { pool }         = require('./db');
 const passport         = require('./config/passport');
 const reviewsRouter    = require('./routes/reviews');
 const authRouter       = require('./routes/auth').router;
+const repositoriesRouter = require('./routes/repositories');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -67,6 +68,7 @@ app.get('/health', async (req, res) => {
 // ─── ROUTES ───────────────────────────────────────────────────
 app.use('/auth',          authRouter);
 app.use('/api/v1/reviews', reviewsRouter);
+app.use('/api/v1/repositories', repositoriesRouter);
 
 // ─── 404 ──────────────────────────────────────────────────────
 app.use('/{*splat}', (req, res) => {

@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@octokit/rest": "^22.0.1",
     "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
