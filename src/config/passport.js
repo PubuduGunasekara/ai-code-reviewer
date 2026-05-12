@@ -40,7 +40,7 @@ passport.use(new GitHubStrategy(
            RETURNING *`,
           [accessToken, githubId]
         );
-        console.log(`✅ Returning user logged in: ${githubUsername}`);
+        console.log(`Returning user logged in: ${githubUsername}`);
         return done(null, updated.rows[0]);
       }
 
@@ -53,11 +53,11 @@ passport.use(new GitHubStrategy(
         [githubId, githubUsername, displayName, avatarUrl, accessToken]
       );
 
-      console.log(`✅ New user created: ${githubUsername}`);
+      console.log(`New user created: ${githubUsername}`);
       return done(null, newUser.rows[0]);
 
     } catch (error) {
-      console.error('❌ Passport strategy error:', error);
+      console.error('Passport strategy error:', error);
       return done(error, null);
     }
   }
