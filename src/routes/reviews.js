@@ -3,6 +3,7 @@ const router = express.Router();
 const { query } = require('../db');
 const { requireAuth }   = require('./auth');
 const GitHubService     = require('../services/githubService');
+const { reviewDiff }  = require('../services/openaiService');
 
 // GET /api/v1/reviews
 router.get('/', async (req, res) => {
@@ -131,7 +132,7 @@ router.post('/fetch-pr', requireAuth, async (req, res) => {
     const github = new GitHubService(req.user.access_token);
 
     // Fetch PR metadata
-    console.log(`📥 Fetching PR #${pr_number} from ${repo.full_name}...`);
+    console.log(`Fetching PR #${pr_number} from ${repo.full_name}...`);
     const prDetails = await github.getPullRequest(
       repo.owner, repo.name, pr_number
     );
@@ -203,6 +204,161 @@ router.post('/fetch-pr', requireAuth, async (req, res) => {
 
     const message = error.message || 'Failed to fetch PR';
     return res.status(500).json({ error: message });
+  }
+});
+
+// POST /api/v1/reviews/:id/process
+// Trigger GPT-4o review on a stored PR diff
+// This is the main feature — where AI actually reviews code
+router.post('/:id/process', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // ── 1. Fetch the review from database ──────────────────────
+    const reviewResult = await query(
+      `SELECT r.*, 
+              repo.owner, repo.name as repo_name
+       FROM reviews r
+       JOIN repositories repo ON r.repository_id = repo.id
+       WHERE r.id = $1 AND r.user_id = $2`,
+      [id, req.user.id]
+    );
+
+    if (reviewResult.rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'Review not found or not owned by you' 
+      });
+    }
+
+    const review = reviewResult.rows[0];
+
+    // ── 2. Check it's not already processed ───────────────────
+    if (review.status === 'completed') {
+      return res.status(409).json({
+        error: 'Review already completed',
+        message: 'Use GET /api/v1/reviews/:id to see the results',
+      });
+    }
+
+    if (review.status === 'processing') {
+      return res.status(409).json({
+        error: 'Review is already being processed',
+      });
+    }
+
+    if (!review.diff_content) {
+      return res.status(400).json({
+        error: 'No diff content — use /fetch-pr first',
+      });
+    }
+
+    // ── 3. Update status to 'processing' ──────────────────────
+    // This prevents duplicate processing if user hits the
+    // endpoint twice simultaneously
+    await query(
+      `UPDATE reviews SET status = 'processing', 
+       updated_at = NOW() WHERE id = $1`,
+      [id]
+    );
+
+    console.log(`Processing review ${id} for PR #${review.pr_number}`);
+
+    // ── 4. Send diff to GPT-4o ────────────────────────────────
+    const { review: aiReview, processingTimeMs, model } = 
+      await reviewDiff(
+        review.diff_content,
+        review.pr_title,
+        review.pr_number
+      );
+
+    // ── 5. Save each comment to review_comments table ─────────
+    // We save them individually so they can be queried,
+    // filtered by severity, and displayed inline on the diff
+    const savedComments = [];
+    
+    for (const issue of aiReview.issues) {
+      const commentResult = await query(
+        `INSERT INTO review_comments
+           (review_id, file_path, line_number, severity, 
+            category, comment, cwe_reference, suggestion)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [
+          id,
+          issue.file     || 'unknown',
+          issue.line     || null,
+          issue.severity || 'info',
+          issue.category || 'general',
+          issue.comment,
+          issue.cwe      || null,
+          issue.suggestion || null,
+        ]
+      );
+      savedComments.push(commentResult.rows[0]);
+    }
+
+    // ── 6. Update review as completed ─────────────────────────
+    await query(
+      `UPDATE reviews SET
+         status             = 'completed',
+         review_result      = $1,
+         issues_count       = $2,
+         processing_time_ms = $3,
+         model_used         = $4,
+         updated_at         = NOW()
+       WHERE id = $5`,
+      [
+        JSON.stringify(aiReview),  // full response stored as JSONB
+        aiReview.issues.length,
+        processingTimeMs,
+        model,
+        id,
+      ]
+    );
+
+    console.log(`Review ${id} complete: ${aiReview.issues.length} issues found`);
+
+    // ── 7. Return the full review ──────────────────────────────
+    res.json({
+      message: 'AI review complete',
+      review: {
+        id,
+        pr_number:          review.pr_number,
+        pr_title:           review.pr_title,
+        status:             'completed',
+        processing_time_ms: processingTimeMs,
+        model_used:         model,
+        summary:            aiReview.summary,
+        score:              aiReview.score,
+        positives:          aiReview.positives,
+        issues_count:       aiReview.issues.length,
+        issues_by_severity: {
+          critical: savedComments.filter(c => c.severity === 'critical').length,
+          high:     savedComments.filter(c => c.severity === 'high').length,
+          medium:   savedComments.filter(c => c.severity === 'medium').length,
+          low:      savedComments.filter(c => c.severity === 'low').length,
+          info:     savedComments.filter(c => c.severity === 'info').length,
+        },
+        comments: savedComments,
+      },
+    });
+
+  } catch (error) {
+    console.error(`Review processing error for ${id}:`, error.message);
+
+    // If GPT-4o fails — update status back to 'pending'
+    // so the user can try again
+    await query(
+      `UPDATE reviews SET status = 'pending', updated_at = NOW() 
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (error.message.includes('OpenAI')) {
+      return res.status(502).json({ error: error.message });
+    }
+
+    res.status(500).json({ error: 'Review processing failed' });
   }
 });
 
