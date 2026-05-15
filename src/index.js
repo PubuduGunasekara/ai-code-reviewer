@@ -11,6 +11,7 @@ const passport         = require('./config/passport');
 const reviewsRouter    = require('./routes/reviews');
 const authRouter       = require('./routes/auth').router;
 const repositoriesRouter = require('./routes/repositories');
+const { ping }         = require('./services/redisService');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -52,12 +53,15 @@ app.use(passport.session());    // connect passport to our session
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
+    const redisAlive = await ping().catch(() => false);
+    
     res.json({
       status:        'ok',
       service:       'ai-code-reviewer',
       timestamp:     new Date().toISOString(),
       version:       '0.1.0',
       database:      'connected',
+      redis:         redisAlive ? 'connected' : 'disconnected',
       authenticated: req.isAuthenticated(),
     });
   } catch {

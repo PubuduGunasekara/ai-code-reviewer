@@ -4,6 +4,11 @@ const { query } = require('../db');
 const { requireAuth }   = require('./auth');
 const GitHubService     = require('../services/githubService');
 const { reviewDiff }  = require('../services/openaiService');
+const { createRateLimiter }           = require('../middleware/rateLimiter');
+const { getCachedReview, cacheReview } = require('../services/redisService');
+
+// Create rate limiter instance
+const reviewRateLimiter = createRateLimiter();
 
 // GET /api/v1/reviews
 router.get('/', async (req, res) => {
@@ -208,9 +213,9 @@ router.post('/fetch-pr', requireAuth, async (req, res) => {
 });
 
 // POST /api/v1/reviews/:id/process
-// Trigger GPT-4o review on a stored PR diff
+// Trigger gpt-4o-mini review on a stored PR diff
 // This is the main feature — where AI actually reviews code
-router.post('/:id/process', requireAuth, async (req, res) => {
+router.post('/:id/process', requireAuth, reviewRateLimiter, async (req, res) => {
   const { id } = req.params;
   
   try {
@@ -263,6 +268,44 @@ router.post('/:id/process', requireAuth, async (req, res) => {
 
     console.log(`Processing review ${id} for PR #${review.pr_number}`);
 
+    // ── 3.5 Check cache before calling GPT-4o ─────────────────
+    // Same diff reviewed before? Return cached result instantly.
+    // Saves money (no API cost) and time (no 5-second wait)
+    const cached = await getCachedReview(review.diff_content);
+    
+    if (cached) {
+      // Cache hit — update review as completed with cached result
+      await query(
+        `UPDATE reviews SET
+           status             = 'completed',
+           review_result      = $1,
+           issues_count       = $2,
+           processing_time_ms = 0,
+           cached             = true,
+           model_used         = $3,
+           updated_at         = NOW()
+         WHERE id = $4`,
+        [JSON.stringify(cached.review), cached.review.issues.length, cached.model, id]
+      );
+
+      return res.json({
+        message: 'AI review complete (cached)',
+        cached:  true,
+        review: {
+          id,
+          pr_number:          review.pr_number,
+          pr_title:           review.pr_title,
+          status:             'completed',
+          processing_time_ms: 0,
+          cached:             true,
+          summary:            cached.review.summary,
+          score:              cached.review.score,
+          issues_count:       cached.review.issues.length,
+          comments:           cached.review.issues,
+        },
+      });
+    }
+
     // ── 4. Send diff to GPT-4o ────────────────────────────────
     const { review: aiReview, processingTimeMs, model } = 
       await reviewDiff(
@@ -270,6 +313,9 @@ router.post('/:id/process', requireAuth, async (req, res) => {
         review.pr_title,
         review.pr_number
       );
+
+    // Cache the result for future identical diffs
+    await cacheReview(review.diff_content, { review: aiReview, model });
 
     // ── 5. Save each comment to review_comments table ─────────
     // We save them individually so they can be queried,
@@ -317,6 +363,8 @@ router.post('/:id/process', requireAuth, async (req, res) => {
     );
 
     console.log(`Review ${id} complete: ${aiReview.issues.length} issues found`);
+
+  
 
     // ── 7. Return the full review ──────────────────────────────
     res.json({
