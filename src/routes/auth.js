@@ -37,17 +37,13 @@ router.get('/callback',
     // Login successful — req.user is now populated
     console.log(`🎉 Login successful: ${req.user.github_username}`);
 
-    // In production: redirect to React frontend
-    // For now: return the user data as JSON so we can test it
-    res.json({
-      message: 'Login successful',
-      user: {
-        id: req.user.id,
-        github_username: req.user.github_username,
-        display_name: req.user.display_name,
-        avatar_url: req.user.avatar_url,
-      },
-    });
+    // Redirect to React frontend (use CLIENT_URL env when available)
+    const client = process.env.CLIENT_URL || 'http://localhost:3000';
+    const redirectUrl = `${client.replace(/\/$/, '')}/dashboard`;
+
+    // In tests you may want JSON — detect X-Requested-With or accept header
+    // but by default redirect to the React app
+    return res.redirect(redirectUrl);
   }
 );
 
