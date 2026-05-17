@@ -2,8 +2,81 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { reviewsApi } from "../api/client";
+import AppFooter from "../components/AppFooter";
 import Navbar from "../components/Navbar";
-import SeverityBadge from "../components/SeverityBadge";
+import RepositoryBadge from "../components/RepositoryBadge";
+import {
+  getOwnerGroupKey,
+  getRepositoryGroupKey,
+  getRepositoryIdentity,
+} from "../utils/repository";
+
+function ReviewStatus({ status }) {
+  const isCompleted = status === "completed";
+
+  return (
+    <span
+      className={`status-pill ${
+        isCompleted ? "text-[var(--mint)]" : "text-[var(--amber)]"
+      }`}
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          isCompleted ? "bg-[var(--mint)]" : "bg-[var(--amber)]"
+        }`}
+      />
+      {status}
+    </span>
+  );
+}
+
+function OwnerMark({ owner }) {
+  const initial = owner?.charAt(0)?.toUpperCase() || "?";
+
+  return (
+    <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 via-violet-400 to-rose-400 text-sm font-bold text-white shadow-lg shadow-sky-500/15">
+      {initial}
+    </span>
+  );
+}
+
+function groupReviewsByOwnerAndRepo(reviews) {
+  const ownerMap = new Map();
+
+  reviews.forEach((review) => {
+    const ownerKey = getOwnerGroupKey(review);
+    const repoKey = getRepositoryGroupKey(review);
+    const repository = getRepositoryIdentity(review);
+
+    if (!ownerMap.has(ownerKey)) {
+      ownerMap.set(ownerKey, {
+        owner: ownerKey,
+        reviewCount: 0,
+        repos: new Map(),
+      });
+    }
+
+    const ownerGroup = ownerMap.get(ownerKey);
+    ownerGroup.reviewCount += 1;
+
+    if (!ownerGroup.repos.has(repoKey)) {
+      ownerGroup.repos.set(repoKey, {
+        repository,
+        reviewCount: 0,
+        reviews: [],
+      });
+    }
+
+    const repoGroup = ownerGroup.repos.get(repoKey);
+    repoGroup.reviewCount += 1;
+    repoGroup.reviews.push(review);
+  });
+
+  return Array.from(ownerMap.values()).map((ownerGroup) => ({
+    ...ownerGroup,
+    repos: Array.from(ownerGroup.repos.values()),
+  }));
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -12,167 +85,193 @@ export default function Dashboard() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    async function loadReviews() {
+      try {
+        const response = await reviewsApi.getAll();
+        setReviews(response.data.data || []);
+      } catch {
+        setError("Failed to load reviews");
+      } finally {
+        setLoading(false);
+      }
+    }
+
     loadReviews();
   }, []);
 
-  async function loadReviews() {
-    try {
-      const response = await reviewsApi.getAll();
-      setReviews(response.data.data || []);
-    } catch (err) {
-      setError("Failed to load reviews");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Stat counts
   const completed = reviews.filter((r) => r.status === "completed").length;
   const pending = reviews.filter((r) => r.status === "pending").length;
+  const stats = [
+    { label: "Total reviews", value: reviews.length, color: "text-[var(--accent)]" },
+    { label: "Completed", value: completed, color: "text-[var(--mint)]" },
+    { label: "Pending", value: pending, color: "text-[var(--amber)]" },
+  ];
+  const groupedReviews = groupReviewsByOwnerAndRepo(reviews);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="app-bg">
       <Navbar />
 
-      <div className="max-w-6xl mx-auto px-4 py-10">
-        {/* Welcome header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-white mb-1">
-            Welcome back, {user?.github_username}
-          </h1>
-          <p className="text-gray-400 text-sm">
-            Your AI-powered code review dashboard
-          </p>
-        </div>
+      <main className="page-shell">
+        <section className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+          <div>
+            <p className="faint-text text-xs font-semibold uppercase tracking-[0.18em]">
+              Dashboard
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--text)]">
+              Welcome back, {user?.github_username}
+            </h1>
+            <p className="muted-text mt-2 text-sm">
+              Review activity, status, and findings in one quiet workspace.
+            </p>
+          </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          {[
-            {
-              label: "Total Reviews",
-              value: reviews.length,
-              color: "text-blue-400",
-            },
-            { label: "Completed", value: completed, color: "text-green-400" },
-            { label: "Pending", value: pending, color: "text-yellow-400" },
-          ].map((stat) => (
-            <div
-              key={stat.label}
-              className="bg-gray-900 border border-gray-800 rounded-2xl p-5"
-            >
-              <div
-                className={`text-3xl font-bold font-mono ${stat.color} mb-1`}
-              >
+          <Link to="/repositories" className="btn-primary w-full sm:w-auto">
+            New review
+          </Link>
+        </section>
+
+        <section className="mb-8 grid gap-3 sm:grid-cols-3">
+          {stats.map((stat) => (
+            <div key={stat.label} className="surface-panel p-5">
+              <div className={`text-4xl font-semibold ${stat.color}`}>
                 {stat.value}
               </div>
-              <div className="text-gray-500 text-sm">{stat.label}</div>
+              <div className="faint-text mt-2 text-sm">{stat.label}</div>
             </div>
           ))}
-        </div>
+        </section>
 
-        {/* Reviews list */}
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Recent Reviews</h2>
-          <Link
-            to="/repositories"
-            className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-          >
-            + New Review
-          </Link>
-        </div>
-
-        {loading && (
-          <div className="text-gray-500 text-sm font-mono py-8 text-center">
-            Loading reviews...
+        <section>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="faint-text text-xs font-semibold uppercase tracking-[0.18em]">
+                Recent
+              </p>
+              <h2 className="text-xl font-semibold text-[var(--text)]">
+                Reviews
+              </h2>
+            </div>
           </div>
-        )}
 
-        {error && (
-          <div
-            className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 
-                          text-red-400 text-sm"
-          >
-            {error}
-          </div>
-        )}
+          {loading && (
+            <div className="surface-panel muted-text py-10 text-center text-sm">
+              Loading reviews...
+            </div>
+          )}
 
-        {!loading && reviews.length === 0 && (
-          <div
-            className="bg-gray-900 border border-gray-800 rounded-2xl p-10 
-                          text-center"
-          >
-            <div className="text-4xl mb-3">📭</div>
-            <p className="text-gray-400 mb-4">No reviews yet</p>
-            <Link
-              to="/repositories"
-              className="text-blue-400 text-sm hover:text-blue-300"
-            >
-              Connect a repo to get started →
-            </Link>
-          </div>
-        )}
+          {error && (
+            <div className="surface-panel border-red-400/35 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-300">
+              {error}
+            </div>
+          )}
 
-        <div className="space-y-3">
-          {reviews.map((review) => (
-            <Link
-              key={review.id}
-              to={`/reviews/${review.id}`}
-              className="block bg-gray-900 border border-gray-800 rounded-2xl p-5 
-                         hover:border-gray-600 transition-colors group"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  {" "}
-                  {/* min-w-0 prevents overflow */}
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-mono text-blue-400 text-sm">
-                      PR #{review.pr_number}
-                    </span>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded font-mono
-        ${
-          review.status === "completed"
-            ? "bg-green-500/20 text-green-400"
-            : "bg-yellow-500/20 text-yellow-400"
-        }`}
-                    >
-                      {review.status}
-                    </span>
-                    {review.cached && (
-                      <span
-                        className="text-xs px-2 py-0.5 rounded font-mono 
-                         bg-purple-500/20 text-purple-400"
-                      >
-                        cached
-                      </span>
-                    )}
-                  </div>
-                  {/* truncate prevents long titles breaking layout */}
-                  <p className="text-white font-medium truncate">
-                    {review.pr_title || "Untitled PR"}
-                  </p>
-                  <p className="text-gray-500 text-xs mt-1 font-mono">
-                    {new Date(review.created_at).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  {review.status === "completed" && (
-                    <div className="text-2xl font-bold font-mono text-white">
-                      {review.issues_count}
+          {!loading && reviews.length === 0 && (
+            <div className="surface-card px-6 py-12 text-center">
+              <p className="text-lg font-semibold text-[var(--text)]">
+                No reviews yet
+              </p>
+              <p className="muted-text mx-auto mt-2 max-w-md text-sm leading-6">
+                Connect a repository and run your first pull request review.
+              </p>
+              <Link to="/repositories" className="btn-primary mt-6">
+                Connect repository
+              </Link>
+            </div>
+          )}
+
+          <div className="space-y-5">
+            {groupedReviews.map((ownerGroup) => (
+              <div key={ownerGroup.owner} className="surface-panel p-4 sm:p-5">
+                <div className="mb-5 flex items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <OwnerMark owner={ownerGroup.owner} />
+                    <div className="min-w-0">
+                      <p className="faint-text text-xs font-semibold uppercase tracking-[0.16em]">
+                        Owner
+                      </p>
+                      <h3 className="truncate text-lg font-semibold text-[var(--text)]">
+                        {ownerGroup.owner}
+                      </h3>
                     </div>
-                  )}
-                  <div className="text-gray-500 text-xs">issues</div>
+                  </div>
+                  <span className="status-pill text-[var(--text-soft)]">
+                    {ownerGroup.reviewCount} review
+                    {ownerGroup.reviewCount === 1 ? "" : "s"}
+                  </span>
+                </div>
+
+                <div className="space-y-4">
+                  {ownerGroup.repos.map((repoGroup) => (
+                    <div
+                      key={repoGroup.repository.fullName || "Uncategorized"}
+                      className="border-l-2 border-[var(--line-strong)] pl-3 sm:pl-4"
+                    >
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <RepositoryBadge
+                          review={repoGroup.reviews[0]}
+                          compact
+                        />
+                        <span className="faint-text text-xs">
+                          {repoGroup.reviewCount} PR review
+                          {repoGroup.reviewCount === 1 ? "" : "s"}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3">
+                        {repoGroup.reviews.map((review) => (
+                          <Link
+                            key={review.id}
+                            to={`/reviews/${review.id}`}
+                            className="interactive-card block p-5"
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0 flex-1">
+                                <div className="mb-3 flex flex-wrap items-center gap-2">
+                                  <RepositoryBadge review={review} compact />
+                                  <span className="status-pill text-[var(--accent)]">
+                                    PR #{review.pr_number}
+                                  </span>
+                                  <ReviewStatus status={review.status} />
+                                  {review.cached && (
+                                    <span className="status-pill text-[var(--violet)]">
+                                      cached
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="truncate text-base font-semibold text-[var(--text)]">
+                                  {review.pr_title || "Untitled PR"}
+                                </p>
+                                <p className="faint-text mt-2 text-xs">
+                                  {new Date(review.created_at).toLocaleDateString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </p>
+                              </div>
+                              <div className="surface-soft min-w-20 px-3 py-2 text-center">
+                                {review.status === "completed" && (
+                                  <div className="text-2xl font-semibold text-[var(--text)]">
+                                    {review.issues_count}
+                                  </div>
+                                )}
+                                <div className="faint-text text-xs">issues</div>
+                              </div>
+                            </div>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            </Link>
-          ))}
-        </div>
-      </div>
+            ))}
+          </div>
+        </section>
+      </main>
+      <AppFooter />
     </div>
   );
 }

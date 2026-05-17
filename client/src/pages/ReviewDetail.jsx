@@ -1,44 +1,119 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { reviewsApi } from "../api/client";
+import AppFooter from "../components/AppFooter";
 import Navbar from "../components/Navbar";
+import RepositoryBadge from "../components/RepositoryBadge";
 import SeverityBadge from "../components/SeverityBadge";
 import LoadingSpinner from "../components/LoadingSpinner";
+import { getRepositoryIdentity } from "../utils/repository";
+
+function StatusPill({ status }) {
+  const isCompleted = status === "completed";
+
+  return (
+    <span
+      className={`status-pill ${
+        isCompleted ? "text-[var(--mint)]" : "text-[var(--amber)]"
+      }`}
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          isCompleted ? "bg-[var(--mint)]" : "bg-[var(--amber)]"
+        }`}
+      />
+      {status}
+    </span>
+  );
+}
+
+function RepositoryIdentityStrip({ review }) {
+  const repository = getRepositoryIdentity(review);
+
+  if (!repository.fullName) return null;
+
+  return (
+    <div className="surface-soft mb-5 flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 via-violet-400 to-rose-400 text-sm font-bold text-white shadow-lg shadow-sky-500/15">
+          {repository.owner?.charAt(0)?.toUpperCase() || "R"}
+        </span>
+        <div className="min-w-0">
+          <p className="faint-text text-xs font-semibold uppercase tracking-[0.16em]">
+            Repository
+          </p>
+          <div className="mt-1">
+            <RepositoryBadge review={review} />
+          </div>
+        </div>
+      </div>
+
+      {repository.owner && (
+        <div className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 py-1.5 text-xs">
+          <span className="faint-text mr-2 uppercase tracking-[0.14em]">
+            Owner
+          </span>
+          <span className="font-semibold text-[var(--text)]">
+            {repository.owner}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function groupCommentsByCategory(comments) {
+  const categoryMap = new Map();
+
+  comments.forEach((comment) => {
+    const category = comment.category || "General";
+
+    if (!categoryMap.has(category)) {
+      categoryMap.set(category, []);
+    }
+
+    categoryMap.get(category).push(comment);
+  });
+
+  return Array.from(categoryMap.entries()).map(([category, items]) => ({
+    category,
+    comments: items,
+  }));
+}
 
 export default function ReviewDetail() {
-  const { id } = useParams(); // gets :id from URL
+  const { id } = useParams();
   const [review, setReview] = useState(null);
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
 
   useEffect(() => {
+    async function loadReview() {
+      try {
+        const response = await reviewsApi.getOne(id);
+        setReview(response.data.review);
+        setComments(response.data.comments || []);
+      } catch (err) {
+        console.error("Failed to load review:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
     loadReview();
   }, [id]);
-
-  async function loadReview() {
-    try {
-      const response = await reviewsApi.getOne(id);
-      setReview(response.data.review);
-      setComments(response.data.comments || []);
-    } catch (err) {
-      console.error("Failed to load review:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   if (loading) return <LoadingSpinner message="Loading review..." />;
   if (!review)
     return (
-      <div
-        className="min-h-screen bg-gray-950 text-white flex items-center 
-                    justify-center"
-      >
-        <div className="text-center">
-          <p className="text-gray-400 mb-4">Review not found</p>
-          <Link to="/dashboard" className="text-blue-400">
-            ← Back to dashboard
+      <div className="app-bg flex min-h-screen items-center justify-center px-4">
+        <div className="surface-card max-w-sm p-8 text-center">
+          <p className="text-lg font-semibold text-[var(--text)]">
+            Review not found
+          </p>
+          <Link to="/dashboard" className="btn-primary mt-5">
+            Back to dashboard
           </Link>
         </div>
       </div>
@@ -50,158 +125,135 @@ export default function ReviewDetail() {
       : review.review_result
     : null;
 
-  // Score colour
   const score = result?.score ?? null;
   const scoreColour =
     score >= 8
-      ? "text-green-400"
+      ? "text-[var(--mint)]"
       : score >= 5
-        ? "text-yellow-400"
+        ? "text-[var(--amber)]"
         : score !== null
-          ? "text-red-400"
-          : "text-gray-500";
+          ? "text-[var(--rose)]"
+          : "text-[var(--text-faint)]";
 
-  // Filter comments by severity
   const filteredComments =
     filter === "all" ? comments : comments.filter((c) => c.severity === filter);
+  const categorizedComments = groupCommentsByCategory(filteredComments);
 
-  // Count by severity
   const counts = comments.reduce((acc, c) => {
     acc[c.severity] = (acc[c.severity] || 0) + 1;
     return acc;
   }, {});
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="app-bg">
       <Navbar />
 
-      <div className="max-w-4xl mx-auto px-4 py-10">
-        {/* Back link */}
-        <Link
-          to="/dashboard"
-          className="text-gray-500 hover:text-gray-300 text-sm mb-6 
-                     inline-flex items-center gap-1 transition-colors"
-        >
-          ← Back to Dashboard
+      <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:py-10">
+        <Link to="/dashboard" className="btn-secondary mb-6">
+          Back to dashboard
         </Link>
 
-        {/* Review header */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
-          <div className="flex items-start justify-between gap-4 mb-4">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <span className="font-mono text-blue-400">
+        <section className="surface-card mb-6 p-5 sm:p-6">
+          <RepositoryIdentityStrip review={review} />
+
+          <div className="grid gap-5 sm:grid-cols-[1fr_auto]">
+            <div className="min-w-0">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="status-pill text-[var(--accent)]">
                   PR #{review.pr_number}
                 </span>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded font-mono
-                  ${
-                    review.status === "completed"
-                      ? "bg-green-500/20 text-green-400"
-                      : "bg-yellow-500/20 text-yellow-400"
-                  }`}
-                >
-                  {review.status}
-                </span>
+                <StatusPill status={review.status} />
                 {review.cached && (
-                  <span
-                    className="text-xs px-2 py-0.5 rounded font-mono 
-                                   bg-purple-500/20 text-purple-400"
-                  >
-                    ⚡ cached
+                  <span className="status-pill text-[var(--violet)]">
+                    cached
                   </span>
                 )}
               </div>
-              <h1 className="text-lg sm:text-xl font-bold text-white leading-tight">
+              <h1 className="text-2xl font-semibold tracking-tight text-[var(--text)]">
                 {review.pr_title || "Untitled PR"}
               </h1>
-              <p className="text-gray-500 text-xs font-mono mt-1">
-                {review.model_used} ·{" "}
+              <p className="faint-text mt-2 text-sm">
+                Model: {review.model_used} | Time:{" "}
                 {review.processing_time_ms === 0
-                  ? "instant (cached)"
+                  ? "instant cached result"
                   : `${(review.processing_time_ms / 1000).toFixed(1)}s`}
               </p>
             </div>
 
-            {/* Score - shrinks gracefully on mobile */}
-            <div className="text-center flex-shrink-0">
-              <div
-                className={`text-3xl sm:text-4xl font-bold font-mono ${scoreColour}`}
-              >
-                {score ?? "—"}
+            <div className="surface-soft flex min-w-28 items-center justify-center p-4 text-center">
+              <div>
+                <div className={`text-5xl font-semibold ${scoreColour}`}>
+                  {score ?? "-"}
+                </div>
+                <div className="faint-text text-xs">out of 10</div>
               </div>
-              <div className="text-gray-500 text-xs">/ 10</div>
             </div>
           </div>
 
-          {/* Summary */}
           {result?.summary && (
-            <div
-              className="bg-gray-800/50 rounded-xl p-4 text-sm 
-                            text-gray-300 leading-relaxed"
-            >
+            <div className="surface-soft muted-text mt-5 p-4 text-sm leading-7">
               {result.summary}
             </div>
           )}
 
-          {/* Severity counts */}
-          <div className="flex gap-3 mt-4 flex-wrap">
+          <div className="mt-5 flex flex-wrap gap-3">
             {["critical", "high", "medium", "low", "info"].map((sev) =>
               counts[sev] ? (
-                <div key={sev} className="flex items-center gap-1.5">
+                <div key={sev} className="flex items-center gap-2">
                   <SeverityBadge severity={sev} />
-                  <span className="text-gray-400 text-sm">{counts[sev]}</span>
+                  <span className="faint-text text-sm">{counts[sev]}</span>
                 </div>
               ) : null,
             )}
           </div>
-        </div>
+        </section>
 
-        {/* Positives */}
         {result?.positives?.length > 0 && (
-          <div
-            className="bg-green-500/5 border border-green-500/20 
-                          rounded-2xl p-5 mb-6"
-          >
-            <h3 className="text-green-400 font-medium text-sm mb-3 flex items-center gap-2">
-              ✓ What was done well
-            </h3>
-            <ul className="space-y-1">
+          <section className="surface-panel mb-6 border-emerald-400/35 bg-emerald-500/10 p-5">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-300">
+              What worked
+            </h2>
+            <ul className="space-y-2">
               {result.positives.map((p, i) => (
-                <li key={i} className="text-gray-300 text-sm flex gap-2">
-                  <span className="text-green-500 mt-0.5">·</span>
-                  {p}
+                <li
+                  key={i}
+                  className="muted-text grid grid-cols-[10px_1fr] gap-3 text-sm leading-6"
+                >
+                  <span className="mt-2 h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  <span>{p}</span>
                 </li>
               ))}
             </ul>
-          </div>
+          </section>
         )}
 
-        {/* Issues */}
         {comments.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">
-                Issues
-                <span className="ml-2 text-sm font-normal text-gray-500">
-                  ({filteredComments.length})
-                </span>
-              </h2>
+          <section>
+            <div className="mb-4 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+              <div>
+                <p className="faint-text text-xs font-semibold uppercase tracking-[0.18em]">
+                  Findings
+                </p>
+                <h2 className="text-xl font-semibold text-[var(--text)]">
+                  Issues
+                  <span className="faint-text ml-2 text-sm font-normal">
+                    ({filteredComments.length})
+                  </span>
+                </h2>
+              </div>
 
-              {/* Filter buttons */}
-              <div className="flex gap-1 overflow-x-auto pb-1 -mb-1 scrollbar-hide">
+              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                 {["all", "critical", "high", "medium", "low", "info"].map(
                   (f) => (
                     <button
                       key={f}
+                      type="button"
                       onClick={() => setFilter(f)}
-                      className={`text-xs px-3 py-1 rounded-full font-mono transition-colors
-                  whitespace-nowrap flex-shrink-0
-                        ${
+                      className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] transition ${
                         filter === f
-                            ? "bg-blue-600 text-white"
-                            : "text-gray-500 hover:text-gray-300 border border-gray-800"
-                        }`}
+                          ? "border-transparent bg-[var(--text)] text-[var(--app-bg)]"
+                          : "border-[var(--line)] bg-[var(--surface)] text-[var(--text-soft)] hover:border-[var(--line-strong)]"
+                      }`}
                     >
                       {f}
                       {f !== "all" && counts[f] ? ` (${counts[f]})` : ""}
@@ -211,81 +263,82 @@ export default function ReviewDetail() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              {filteredComments.map((comment, i) => (
-                <div
-                  key={comment.id || i}
-                  className="bg-gray-900 border border-gray-800 rounded-2xl p-5
-                             hover:border-gray-700 transition-colors"
-                >
-                  {/* Issue header */}
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <SeverityBadge severity={comment.severity} />
-                      {comment.category && (
-                        <span
-                          className="text-xs font-mono text-gray-500 
-                                         bg-gray-800 px-2 py-0.5 rounded"
-                        >
-                          {comment.category}
-                        </span>
-                      )}
-                      {comment.cwe_reference && (
-                        <span
-                          className="text-xs font-mono text-orange-400 
-                                         bg-orange-500/10 px-2 py-0.5 rounded 
-                                         border border-orange-500/20"
-                        >
-                          {comment.cwe_reference}
-                        </span>
-                      )}
+            <div className="space-y-5">
+              {categorizedComments.map((categoryGroup) => (
+                <div key={categoryGroup.category}>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="faint-text text-xs font-semibold uppercase tracking-[0.16em]">
+                        Category
+                      </p>
+                      <h3 className="text-base font-semibold text-[var(--text)]">
+                        {categoryGroup.category}
+                      </h3>
                     </div>
-                    {comment.file_path && (
-                      <span className="text-xs font-mono text-gray-500 shrink-0">
-                        {comment.file_path}
-                        {comment.line_number && `:${comment.line_number}`}
-                      </span>
-                    )}
+                    <span className="status-pill text-[var(--text-soft)]">
+                      {categoryGroup.comments.length} finding
+                      {categoryGroup.comments.length === 1 ? "" : "s"}
+                    </span>
                   </div>
 
-                  {/* Comment */}
-                  <p className="text-gray-200 text-sm leading-relaxed mb-3">
-                    {comment.comment}
-                  </p>
+                  <div className="space-y-3">
+                    {categoryGroup.comments.map((comment, i) => (
+                      <article
+                        key={comment.id || `${categoryGroup.category}-${i}`}
+                        className="interactive-card p-5"
+                      >
+                        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <SeverityBadge severity={comment.severity} />
+                            {comment.cwe_reference && (
+                              <span className="status-pill text-[var(--amber)]">
+                                {comment.cwe_reference}
+                              </span>
+                            )}
+                          </div>
+                          {comment.file_path && (
+                            <span className="faint-text max-w-full truncate text-xs sm:max-w-xs">
+                              {comment.file_path}
+                              {comment.line_number && `:${comment.line_number}`}
+                            </span>
+                          )}
+                        </div>
 
-                  {/* Suggestion */}
-                  {comment.suggestion && (
-                    <div
-                      className="bg-blue-500/5 border border-blue-500/20 
-                                    rounded-xl p-3"
-                    >
-                      <p className="text-xs font-mono text-blue-400 mb-1">
-                        Suggestion
-                      </p>
-                      <p className="text-gray-300 text-sm leading-relaxed">
-                        {comment.suggestion}
-                      </p>
-                    </div>
-                  )}
+                        <p className="muted-text text-sm leading-7">
+                          {comment.comment}
+                        </p>
+
+                        {comment.suggestion && (
+                          <div className="surface-soft mt-4 p-4">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+                              Suggestion
+                            </p>
+                            <p className="muted-text text-sm leading-7">
+                              {comment.suggestion}
+                            </p>
+                          </div>
+                        )}
+                      </article>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
         {comments.length === 0 && review.status === "completed" && (
-          <div
-            className="bg-green-500/5 border border-green-500/20 
-                          rounded-2xl p-10 text-center"
-          >
-            <div className="text-4xl mb-3">✅</div>
-            <p className="text-green-400 font-medium">No issues found</p>
-            <p className="text-gray-500 text-sm mt-1">
-              This PR looks clean to the AI reviewer
+          <section className="surface-card px-6 py-12 text-center">
+            <p className="text-lg font-semibold text-[var(--mint)]">
+              No issues found
             </p>
-          </div>
+            <p className="muted-text mt-2 text-sm">
+              This pull request finished with a clean review.
+            </p>
+          </section>
         )}
-      </div>
+      </main>
+      <AppFooter />
     </div>
   );
 }

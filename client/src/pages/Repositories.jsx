@@ -1,8 +1,30 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { reposApi, reviewsApi } from "../api/client";
+import AppFooter from "../components/AppFooter";
 import Navbar from "../components/Navbar";
 import LoadingSpinner from "../components/LoadingSpinner";
+
+function RepositoryRow({ repo, action }) {
+  return (
+    <div className="interactive-card flex flex-col justify-between gap-4 px-4 py-3 sm:flex-row sm:items-center">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-[var(--text)]">
+          {repo.full_name}
+        </p>
+        <div className="mt-1 flex flex-wrap gap-2">
+          {repo.is_private && (
+            <span className="faint-text text-xs">private</span>
+          )}
+          {repo.language && (
+            <span className="faint-text text-xs">{repo.language}</span>
+          )}
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
 
 export default function Repositories() {
   const navigate = useNavigate();
@@ -13,7 +35,6 @@ export default function Repositories() {
   const [connecting, setConnecting] = useState(null);
   const [reviewing, setReviewing] = useState(false);
 
-  // For the "create review" form
   const [selectedRepo, setSelectedRepo] = useState("");
   const [prNumber, setPrNumber] = useState("");
   const [reviewError, setReviewError] = useState(null);
@@ -41,7 +62,7 @@ export default function Repositories() {
     setConnecting(githubRepoId);
     try {
       await reposApi.connect(githubRepoId);
-      await loadAll(); // refresh both lists
+      await loadAll();
     } catch (err) {
       alert(err.response?.data?.error || "Failed to connect repo");
     } finally {
@@ -54,7 +75,7 @@ export default function Repositories() {
     try {
       await reposApi.disconnect(repoId);
       await loadAll();
-    } catch (err) {
+    } catch {
       alert("Failed to disconnect repo");
     }
   }
@@ -67,17 +88,14 @@ export default function Repositories() {
     setReviewError(null);
 
     try {
-      // Step 1: fetch the PR diff
       const fetchRes = await reviewsApi.fetchPR(
         selectedRepo,
         parseInt(prNumber),
       );
       const reviewId = fetchRes.data.review.id;
 
-      // Step 2: trigger GPT-4o review
       await reviewsApi.process(reviewId);
 
-      // Step 3: navigate to the completed review
       navigate(`/reviews/${reviewId}`);
     } catch (err) {
       setReviewError(err.response?.data?.error || "Failed to create review");
@@ -91,26 +109,43 @@ export default function Repositories() {
   const connectedIds = new Set(connectedRepos.map((r) => r.github_repo_id));
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="app-bg">
       <Navbar />
 
-      <div className="max-w-6xl mx-auto px-4 py-10">
-        {/* Create Review Form */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-8">
-          <h2 className="text-lg font-semibold mb-1">Create a Review</h2>
-          <p className="text-gray-400 text-sm mb-5">
-            Select a connected repository and enter a PR number
+      <main className="page-shell">
+        <section className="mb-8">
+          <p className="faint-text text-xs font-semibold uppercase tracking-[0.18em]">
+            Repositories
           </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--text)]">
+            Review a pull request
+          </h1>
+          <p className="muted-text mt-2 max-w-2xl text-sm leading-6">
+            Choose a connected repository, enter a pull request number, and keep
+            the review flow exactly where it already works.
+          </p>
+        </section>
+
+        <section className="surface-card mb-8 p-5 sm:p-6">
+          <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <h2 className="text-xl font-semibold text-[var(--text)]">
+                Create review
+              </h2>
+              <p className="muted-text mt-1 text-sm">
+                Select a connected repository and enter a PR number.
+              </p>
+            </div>
+          </div>
+
           <form
             onSubmit={createReview}
-            className="flex gap-3 flex-col sm:flex-row sm:flex-wrap"
+            className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px_auto]"
           >
             <select
               value={selectedRepo}
               onChange={(e) => setSelectedRepo(e.target.value)}
-              className="w-full sm:flex-1 sm:min-w-48 bg-gray-800 border border-gray-700 
-               rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none 
-               focus:border-blue-500"
+              className="input-shell"
               required
             >
               <option value="">Select a repository...</option>
@@ -123,12 +158,10 @@ export default function Repositories() {
 
             <input
               type="number"
-              placeholder="PR number (e.g. 3)"
+              placeholder="PR number"
               value={prNumber}
               onChange={(e) => setPrNumber(e.target.value)}
-              className="w-full sm:w-40 bg-gray-800 border border-gray-700 rounded-xl 
-               px-4 py-2.5 text-white text-sm focus:outline-none 
-               focus:border-blue-500"
+              className="input-shell"
               min="1"
               required
             />
@@ -136,149 +169,117 @@ export default function Repositories() {
             <button
               type="submit"
               disabled={reviewing || !selectedRepo || !prNumber}
-              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 
-               disabled:bg-gray-700 disabled:text-gray-500 text-white 
-               px-6 py-2.5 rounded-xl text-sm font-medium transition-colors 
-               flex items-center justify-center gap-2"
+              className="btn-primary"
             >
               {reviewing ? (
                 <>
-                  <div
-                    className="w-4 h-4 border-2 border-white/30 border-t-white 
-                        rounded-full animate-spin"
-                  />
+                  <span className="h-4 w-4 rounded-full border-2 border-white/35 border-t-white animate-spin" />
                   Reviewing...
                 </>
               ) : (
-                "🤖 Review PR"
+                "Review PR"
               )}
             </button>
           </form>
+
           {reviewError && (
-            <div
-              className="mt-3 text-red-400 text-sm bg-red-500/10 
-                            border border-red-500/30 rounded-xl px-4 py-3"
-            >
+            <div className="surface-panel mt-3 border-red-400/35 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
               {reviewError}
             </div>
           )}
           {reviewing && (
-            <div className="mt-3 text-blue-400 text-sm font-mono">
-              Fetching PR diff → sending to GPT-4o → analysing code... This
-              takes 5-15 seconds.
+            <div className="muted-text mt-3 text-sm">
+              Fetching PR diff, processing the review, and preparing results.
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Connected Repos */}
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">
-            Connected Repositories
-            <span className="ml-2 text-sm font-normal text-gray-500">
-              ({connectedRepos.length})
-            </span>
-          </h2>
+        <section className="mb-8">
+          <div className="mb-4 flex items-end justify-between gap-3">
+            <div>
+              <p className="faint-text text-xs font-semibold uppercase tracking-[0.18em]">
+                Connected
+              </p>
+              <h2 className="text-xl font-semibold text-[var(--text)]">
+                Repositories
+                <span className="faint-text ml-2 text-sm font-normal">
+                  ({connectedRepos.length})
+                </span>
+              </h2>
+            </div>
+          </div>
 
           {connectedRepos.length === 0 ? (
-            <div
-              className="bg-gray-900 border border-dashed border-gray-700 
-                            rounded-2xl p-8 text-center text-gray-500 text-sm"
-            >
-              No repos connected yet. Connect one below.
+            <div className="surface-panel muted-text border-dashed p-8 text-center text-sm">
+              No repositories connected yet.
             </div>
           ) : (
             <div className="space-y-2">
               {connectedRepos.map((repo) => (
-                <div
+                <RepositoryRow
                   key={repo.id}
-                  className="flex items-center justify-between bg-gray-900 
-                             border border-gray-800 rounded-xl px-4 py-3"
-                >
-                  <div>
-                    <span className="font-mono text-sm text-white">
-                      {repo.full_name}
-                    </span>
-                    {repo.is_private && (
-                      <span className="ml-2 text-xs text-gray-500">
-                        🔒 private
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => disconnectRepo(repo.id)}
-                    className="text-xs text-gray-500 hover:text-red-400 transition-colors"
-                  >
-                    Disconnect
-                  </button>
-                </div>
+                  repo={repo}
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => disconnectRepo(repo.id)}
+                      className="btn-secondary text-xs text-[var(--text-soft)] hover:text-red-500"
+                    >
+                      Disconnect
+                    </button>
+                  }
+                />
               ))}
             </div>
           )}
-        </div>
+        </section>
 
-        {/* All GitHub Repos */}
-        <div>
-          <h2 className="text-lg font-semibold mb-4">
-            Your GitHub Repositories
-            <span className="ml-2 text-sm font-normal text-gray-500">
-              ({githubRepos.length})
-            </span>
-          </h2>
+        <section>
+          <div className="mb-4">
+            <p className="faint-text text-xs font-semibold uppercase tracking-[0.18em]">
+              GitHub
+            </p>
+            <h2 className="text-xl font-semibold text-[var(--text)]">
+              Your repositories
+              <span className="faint-text ml-2 text-sm font-normal">
+                ({githubRepos.length})
+              </span>
+            </h2>
+          </div>
 
           <div className="space-y-2">
             {githubRepos.map((repo) => {
               const isConnected = connectedIds.has(repo.github_repo_id);
               return (
-                <div
+                <RepositoryRow
                   key={repo.github_repo_id}
-                  className="flex items-center justify-between bg-gray-900 
-                             border border-gray-800 rounded-xl px-4 py-3"
-                >
-                  <div>
-                    <span className="font-mono text-sm text-white">
-                      {repo.full_name}
-                    </span>
-                    <div className="flex gap-2 mt-0.5">
-                      {repo.is_private && (
-                        <span className="text-xs text-gray-500">
-                          🔒 private
-                        </span>
-                      )}
-                      {repo.language && (
-                        <span className="text-xs text-gray-600">
-                          {repo.language}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {isConnected ? (
-                    <span
-                      className="text-xs font-mono text-green-400 
-                                     bg-green-500/10 px-3 py-1 rounded-full"
-                    >
-                      ✓ connected
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => connectRepo(repo.github_repo_id)}
-                      disabled={connecting === repo.github_repo_id}
-                      className="text-xs text-blue-400 hover:text-blue-300 
-                                 border border-blue-500/30 hover:border-blue-400 
-                                 px-3 py-1 rounded-full transition-colors 
-                                 disabled:opacity-50"
-                    >
-                      {connecting === repo.github_repo_id
-                        ? "Connecting..."
-                        : "Connect"}
-                    </button>
-                  )}
-                </div>
+                  repo={repo}
+                  action={
+                    isConnected ? (
+                      <span className="status-pill text-[var(--mint)]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--mint)]" />
+                        connected
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => connectRepo(repo.github_repo_id)}
+                        disabled={connecting === repo.github_repo_id}
+                        className="btn-secondary text-xs text-[var(--accent)] disabled:opacity-50"
+                      >
+                        {connecting === repo.github_repo_id
+                          ? "Connecting..."
+                          : "Connect"}
+                      </button>
+                    )
+                  }
+                />
               );
             })}
           </div>
-        </div>
-      </div>
+        </section>
+      </main>
+      <AppFooter />
     </div>
   );
 }

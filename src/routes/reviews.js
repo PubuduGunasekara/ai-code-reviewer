@@ -18,11 +18,16 @@ router.get('/', async (req, res) => {
     const offset = (page - 1) * limit;
 
     const result = await query(
-      `SELECT id, pr_number, pr_title, status,
-              issues_count, processing_time_ms,
-              cached, created_at
-       FROM reviews
-       ORDER BY created_at DESC
+      `SELECT r.id, r.repository_id, r.pr_number, r.pr_title, r.status,
+              r.issues_count, r.processing_time_ms,
+              r.cached, r.created_at,
+              repo.full_name AS repository_full_name,
+              repo.name AS repository_name,
+              repo.owner AS repository_owner,
+              repo.is_private AS repository_is_private
+       FROM reviews r
+       JOIN repositories repo ON r.repository_id = repo.id
+       ORDER BY r.created_at DESC
        LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
@@ -48,7 +53,15 @@ router.get('/:id', async (req, res) => {
     const { id } = req.params;
 
     const reviewResult = await query(
-      'SELECT * FROM reviews WHERE id = $1', [id]
+      `SELECT r.*,
+              repo.full_name AS repository_full_name,
+              repo.name AS repository_name,
+              repo.owner AS repository_owner,
+              repo.is_private AS repository_is_private
+       FROM reviews r
+       JOIN repositories repo ON r.repository_id = repo.id
+       WHERE r.id = $1`,
+      [id]
     );
 
     if (reviewResult.rows.length === 0) {
@@ -178,6 +191,11 @@ router.post('/fetch-pr', requireAuth, async (req, res) => {
         pr_number: review.pr_number,
         pr_title:  review.pr_title,
         status:    review.status,
+        repository_id,
+        repository_full_name: repo.full_name,
+        repository_name: repo.name,
+        repository_owner: repo.owner,
+        repository_is_private: repo.is_private,
         pr_details: {
           author:        prDetails.author,
           additions:     prDetails.additions,

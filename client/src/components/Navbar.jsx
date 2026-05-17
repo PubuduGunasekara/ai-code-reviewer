@@ -1,5 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import BrandMark from "./BrandMark";
+import ThemeToggle from "./ThemeToggle";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -11,55 +13,57 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="border-b border-gray-800 bg-gray-950/80 backdrop-blur-sm sticky top-0 z-10">
-      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-        {/* Logo */}
-        <Link to="/dashboard" className="flex items-center gap-2">
-          <span className="text-blue-400 font-mono text-lg">🤖</span>
-          <span className="font-semibold text-white text-sm">
-            AI Code Reviewer
-          </span>
+    <nav className="nav-shell sticky top-0 z-20">
+      <div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+        <Link to="/dashboard" className="flex items-center gap-3">
+          <BrandMark />
+          <div>
+            <span className="block text-sm font-semibold tracking-tight text-[var(--text)]">
+              AI Code Reviewer
+            </span>
+            <span className="faint-text block text-xs">Review workspace</span>
+          </div>
         </Link>
 
-        {/* Nav links */}
         {user && (
-          <div className="flex items-center gap-6">
+          <div className="order-3 flex w-full items-center gap-2 sm:order-none sm:w-auto">
             <Link
               to="/dashboard"
-              className="text-gray-400 hover:text-white text-sm transition-colors"
+              className="btn-secondary flex-1 px-3 py-2 sm:flex-none"
             >
               Dashboard
             </Link>
             <Link
               to="/repositories"
-              className="text-gray-400 hover:text-white text-sm transition-colors"
+              className="btn-secondary flex-1 px-3 py-2 sm:flex-none"
             >
               Repositories
             </Link>
           </div>
         )}
 
-        {/* User + logout */}
-        {user && (
-          <div className="flex items-center gap-3">
-            <img
-              src={user.avatar_url}
-              alt={user.github_username}
-              className="w-7 h-7 rounded-full border border-gray-700 flex-shrink-0"
-            />
-            {/* Hide username on very small screens */}
-            <span className="text-gray-400 text-sm font-mono hidden sm:inline">
-              {user.github_username}
-            </span>
-            <button
-              onClick={handleLogout}
-              className="text-xs text-gray-500 hover:text-red-400 transition-colors px-2 py-1 
-               rounded border border-gray-800 hover:border-red-500/30 flex-shrink-0"
-            >
-              Logout
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          {user && (
+            <>
+              <img
+                src={user.avatar_url}
+                alt={user.github_username}
+                className="h-9 w-9 flex-shrink-0 rounded-full border border-[var(--line)]"
+              />
+              <span className="faint-text hidden text-sm font-medium sm:inline">
+                {user.github_username}
+              </span>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="btn-secondary px-3 py-2 text-xs"
+              >
+                Sign out
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </nav>
   );

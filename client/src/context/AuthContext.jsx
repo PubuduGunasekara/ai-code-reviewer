@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { authApi } from '../api/client';
 
 // The context — a global "box" that holds the user state
 // Any component can reach into this box and get the user
@@ -14,27 +13,27 @@ export function AuthProvider({ children }) {
   // On first load, check if the user is already logged in
   // (they might have a valid session cookie from before)
   useEffect(() => {
+    async function checkAuth() {
+      try {
+        const response = await fetch('/auth/me', {
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setUser(data.user);
+        } else {
+          setUser(null);
+        }
+      } catch {
+        setUser(null);
+      } finally {
+        setLoading(false); // done checking — show the app
+      }
+    }
+
     checkAuth();
   }, []);
-
-  async function checkAuth() {
-    try {
-      const response = await fetch('/auth/me', {
-        credentials: 'include',
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-      } else {
-        setUser(null);
-      }
-    } catch {
-      setUser(null);
-    } finally {
-      setLoading(false); // done checking — show the app
-    }
-  }
 
   function login() {
     // Redirect to backend OAuth route
@@ -68,6 +67,7 @@ export function AuthProvider({ children }) {
 // Custom hook — clean way for any component to use auth
 // Instead of: const { user } = useContext(AuthContext);
 // Just write: const { user } = useAuth();
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
