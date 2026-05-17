@@ -35,7 +35,7 @@ router.get('/callback',
   }),
   (req, res) => {
     // Login successful — req.user is now populated
-    console.log(`🎉 Login successful: ${req.user.github_username}`);
+    console.log(`Login successful: ${req.user.github_username}`);
 
     // Redirect to React frontend (use CLIENT_URL env when available)
     const client = process.env.CLIENT_URL || 'http://localhost:3000';

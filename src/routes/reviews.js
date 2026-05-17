@@ -288,6 +288,28 @@ router.post('/:id/process', requireAuth, reviewRateLimiter, async (req, res) => 
         [JSON.stringify(cached.review), cached.review.issues.length, cached.model, id]
       );
 
+      // Persist cached review issues so the detail page can load them later
+      if (Array.isArray(cached.review.issues) && cached.review.issues.length > 0) {
+        await Promise.all(cached.review.issues.map((issue) =>
+          query(
+            `INSERT INTO review_comments
+               (review_id, file_path, line_number, severity,
+                category, comment, cwe_reference, suggestion)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              id,
+              issue.file || 'unknown',
+              issue.line || null,
+              issue.severity || 'info',
+              issue.category || 'general',
+              issue.comment,
+              issue.cwe || null,
+              issue.suggestion || null,
+            ],
+          )
+        ));
+      }
+
       return res.json({
         message: 'AI review complete (cached)',
         cached:  true,
