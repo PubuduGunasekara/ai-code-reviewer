@@ -1,21 +1,17 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 
-// The context — a global "box" that holds the user state
-// Any component can reach into this box and get the user
+const API = import.meta.env.VITE_API_URL || '';
+
 const AuthContext = createContext(null);
 
-// The Provider — wraps your entire app
-// Everything inside it can read the user state
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // On first load, check if the user is already logged in
-  // (they might have a valid session cookie from before)
   useEffect(() => {
     async function checkAuth() {
       try {
-        const response = await fetch('/auth/me', {
+        const response = await fetch(`${API}/auth/me`, {
           credentials: 'include',
         });
 
@@ -28,7 +24,7 @@ export function AuthProvider({ children }) {
       } catch {
         setUser(null);
       } finally {
-        setLoading(false); // done checking — show the app
+        setLoading(false);
       }
     }
 
@@ -36,15 +32,12 @@ export function AuthProvider({ children }) {
   }, []);
 
   function login() {
-    // Redirect to backend OAuth route
-    // Backend handles the entire GitHub OAuth dance
-    // and redirects back here with a session cookie set
-    window.location.href = '/auth/github';
+    window.location.href = `${API}/auth/github`;
   }
 
   async function logout() {
     try {
-      await fetch('/auth/logout', {
+      await fetch(`${API}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -56,7 +49,6 @@ export function AuthProvider({ children }) {
     }
   }
 
-  // Expose user, login, logout to all child components
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}
@@ -64,9 +56,6 @@ export function AuthProvider({ children }) {
   );
 }
 
-// Custom hook — clean way for any component to use auth
-// Instead of: const { user } = useContext(AuthContext);
-// Just write: const { user } = useAuth();
 // eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
