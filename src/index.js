@@ -14,6 +14,7 @@ const repositoriesRouter = require('./routes/repositories');
 const { ping }         = require('./services/redisService');
 
 const app  = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
 
 // ─── SECURITY MIDDLEWARE ──────────────────────────────────────
