@@ -39,10 +39,11 @@ app.use(session({
   resave:            false,  // don't save session if nothing changed
   saveUninitialized: false,  // don't create session until something stored
   cookie: {
-    secure:   false,         // true in production (requires HTTPS)
-    httpOnly: true,          // JS cannot read the cookie (XSS protection)
-    maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
-  },
+  secure:   true,
+  httpOnly: true,
+  sameSite: 'none',
+  maxAge:   7 * 24 * 60 * 60 * 1000,
+},
 }));
 
 // ─── PASSPORT ─────────────────────────────────────────────────
