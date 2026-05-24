@@ -10,7 +10,7 @@ passport.use(new GitHubStrategy(
   {
     clientID:     process.env.GITHUB_CLIENT_ID,
     clientSecret: process.env.GITHUB_CLIENT_SECRET,
-    callbackURL:  'http://localhost:3001/auth/callback',
+    callbackURL: process.env.CALLBACK_URL || 'http://localhost:3001/auth/callback',
     scope: ['user:email', 'repo'],
   },
 
