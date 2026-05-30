@@ -309,10 +309,12 @@ Create a `.env` file in the project root. **Never commit this file** — it's al
 # ── Server ──────────────────────────────────────────────
 PORT=5000
 NODE_ENV=development
+CLIENT_URL=http://localhost:3000
+CALLBACK_URL=http://localhost:5000/auth/callback
 
 # ── GitHub OAuth App ─────────────────────────────────────
 # Create one at: https://github.com/settings/developers
-# Callback URL: http://localhost:5000/auth/github/callback
+# Callback URL: http://localhost:5000/auth/callback
 GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
 
@@ -328,6 +330,9 @@ REDIS_URL=redis://localhost:6379
 
 # ── Session ──────────────────────────────────────────────
 SESSION_SECRET=replace_with_a_long_random_string
+# Set these explicitly when your API runs behind HTTPS.
+SESSION_COOKIE_SECURE=true
+SESSION_COOKIE_SAME_SITE=none
 ```
 
 ### How to get each credential
@@ -337,6 +342,14 @@ SESSION_SECRET=replace_with_a_long_random_string
 | `GITHUB_CLIENT_ID` / `SECRET` | [github.com/settings/developers](https://github.com/settings/developers) → New OAuth App |
 | `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
 | `SESSION_SECRET` | Run `openssl rand -hex 32` in your terminal |
+
+For production OAuth, set `CLIENT_URL` to the exact frontend origin and
+`CALLBACK_URL` to the exact backend callback registered in GitHub. If Amplify and
+EC2 use unrelated default domains, browser third-party cookie blocking can make
+`/auth/me` return 401 after a successful GitHub callback. The most reliable setup
+is to serve the frontend and API under the same site, for example
+`app.example.com` and `api.example.com`, or proxy `/auth` and `/api` through the
+frontend domain.
 
 ---
 

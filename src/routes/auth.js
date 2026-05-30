@@ -2,6 +2,8 @@ const express  = require('express');
 const passport = require('../config/passport');
 const router   = express.Router();
 
+const getServerOrigin = (req) => `${req.protocol}://${req.get('host')}`;
+
 // ─── MIDDLEWARE ───────────────────────────────────────────────
 // Checks if user is logged in before allowing access to protected routes
 const requireAuth = (req, res, next) => {
@@ -11,7 +13,7 @@ const requireAuth = (req, res, next) => {
   res.status(401).json({
     error: 'Unauthorised',
     message: 'You must be logged in to access this resource',
-    loginUrl: 'http://localhost:3001/auth/github',
+    loginUrl: `${getServerOrigin(req)}/auth/github`,
   });
 };
 

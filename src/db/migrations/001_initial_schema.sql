@@ -2,7 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  github_id INTEGER UNIQUE NOT NULL,
+  github_id BIGINT UNIQUE NOT NULL,
   github_username VARCHAR(255) NOT NULL,
   display_name VARCHAR(255),
   avatar_url TEXT,
@@ -16,7 +16,7 @@ CREATE INDEX IF NOT EXISTS idx_users_github_id ON users(github_id);
 CREATE TABLE IF NOT EXISTS repositories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  github_repo_id INTEGER UNIQUE NOT NULL,
+  github_repo_id BIGINT NOT NULL,
   full_name VARCHAR(500) NOT NULL,
   name VARCHAR(255) NOT NULL,
   owner VARCHAR(255) NOT NULL,
@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS repositories (
 
 CREATE INDEX IF NOT EXISTS idx_repositories_user_id ON repositories(user_id);
 CREATE INDEX IF NOT EXISTS idx_repositories_github_repo_id ON repositories(github_repo_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_repositories_user_github_repo
+  ON repositories(user_id, github_repo_id);
 
 CREATE TABLE IF NOT EXISTS reviews (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

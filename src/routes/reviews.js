@@ -10,6 +10,8 @@ const { getCachedReview, cacheReview } = require('../services/redisService');
 // Create rate limiter instance
 const reviewRateLimiter = createRateLimiter();
 
+router.use(requireAuth);
+
 // GET /api/v1/reviews
 router.get('/', async (req, res) => {
   try {
@@ -27,12 +29,16 @@ router.get('/', async (req, res) => {
               repo.is_private AS repository_is_private
        FROM reviews r
        JOIN repositories repo ON r.repository_id = repo.id
+       WHERE r.user_id = $1
        ORDER BY r.created_at DESC
-       LIMIT $1 OFFSET $2`,
-      [limit, offset]
+       LIMIT $2 OFFSET $3`,
+      [req.user.id, limit, offset]
     );
 
-    const countResult = await query('SELECT COUNT(*) FROM reviews');
+    const countResult = await query(
+      'SELECT COUNT(*) FROM reviews WHERE user_id = $1',
+      [req.user.id]
+    );
     const total = parseInt(countResult.rows[0].count);
 
     res.json({
@@ -60,8 +66,8 @@ router.get('/:id', async (req, res) => {
               repo.is_private AS repository_is_private
        FROM reviews r
        JOIN repositories repo ON r.repository_id = repo.id
-       WHERE r.id = $1`,
-      [id]
+       WHERE r.id = $1 AND r.user_id = $2`,
+      [id, req.user.id]
     );
 
     if (reviewResult.rows.length === 0) {
@@ -89,11 +95,23 @@ router.get('/:id', async (req, res) => {
 // POST /api/v1/reviews
 router.post('/', async (req, res) => {
   try {
-    const { pr_number, pr_title, repository_id, user_id } = req.body;
+    const { pr_number, pr_title, repository_id } = req.body;
 
-    if (!pr_number || !repository_id || !user_id) {
+    if (!pr_number || !repository_id) {
       return res.status(400).json({
-        error: 'Missing required fields: pr_number, repository_id, user_id'
+        error: 'Missing required fields: pr_number, repository_id'
+      });
+    }
+
+    const repoResult = await query(
+      `SELECT id FROM repositories
+       WHERE id = $1 AND user_id = $2`,
+      [repository_id, req.user.id]
+    );
+
+    if (repoResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Repository not found or not connected',
       });
     }
 
@@ -102,7 +120,7 @@ router.post('/', async (req, res) => {
          (pr_number, pr_title, repository_id, user_id, status)
        VALUES ($1, $2, $3, $4, 'pending')
        RETURNING *`,
-      [pr_number, pr_title, repository_id, user_id]
+      [pr_number, pr_title, repository_id, req.user.id]
     );
 
     res.status(201).json({
@@ -120,7 +138,7 @@ router.post('/', async (req, res) => {
 // Fetch a PR diff from GitHub and create a review request
 // This is step 1 of the review process — get the diff
 // Step 2 (GPT-4o analysis) comes next session
-router.post('/fetch-pr', requireAuth, async (req, res) => {
+router.post('/fetch-pr', async (req, res) => {
   try {
     const { repository_id, pr_number } = req.body;
 
@@ -233,7 +251,7 @@ router.post('/fetch-pr', requireAuth, async (req, res) => {
 // POST /api/v1/reviews/:id/process
 // Trigger gpt-4o-mini review on a stored PR diff
 // This is the main feature — where AI actually reviews code
-router.post('/:id/process', requireAuth, reviewRateLimiter, async (req, res) => {
+router.post('/:id/process', reviewRateLimiter, async (req, res) => {
   const { id } = req.params;
   
   try {
@@ -438,8 +456,8 @@ router.post('/:id/process', requireAuth, reviewRateLimiter, async (req, res) => 
     // so the user can try again
     await query(
       `UPDATE reviews SET status = 'pending', updated_at = NOW() 
-       WHERE id = $1`,
-      [id]
+       WHERE id = $1 AND user_id = $2`,
+      [id, req.user.id]
     );
 
     if (error.message.includes('OpenAI')) {

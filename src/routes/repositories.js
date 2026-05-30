@@ -65,7 +65,9 @@ router.get("/github", async (req, res) => {
       "SELECT github_repo_id FROM repositories WHERE user_id = $1",
       [req.user.id],
     );
-    const connectedIds = new Set(connected.rows.map((r) => r.github_repo_id));
+    const connectedIds = new Set(
+      connected.rows.map((r) => String(r.github_repo_id)),
+    );
 
     // Return the list with a "connected" flag on each repo
     const repos = data.map((repo) => ({
@@ -77,7 +79,7 @@ router.get("/github", async (req, res) => {
       description: repo.description,
       language: repo.language,
       updated_at: repo.updated_at,
-      connected: connectedIds.has(repo.id), // already connected?
+      connected: connectedIds.has(String(repo.id)), // already connected?
     }));
 
     res.json({
