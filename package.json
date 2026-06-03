@@ -11,7 +11,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@octokit/rest": "^22.0.1",
     "connect-pg-simple": "^10.0.0",
