@@ -20,6 +20,21 @@ redis.on('connect',      () => console.log('Redis connected'));
 redis.on('error',  (err) => console.error('Redis error:', err.message));
 redis.on('reconnecting', () => console.log('Redis reconnecting...'));
 
+// INCR + EXPIRE as two round trips leaves a gap: if the process dies or the
+// connection drops between them, the key never gets a TTL and that user is
+// rate limited forever. Doing both inside one Lua script makes it atomic.
+redis.defineCommand('rateLimitIncr', {
+  numberOfKeys: 1,
+  lua: `
+    local count = redis.call('INCR', KEYS[1])
+    if count == 1 then
+      redis.call('EXPIRE', KEYS[1], ARGV[1])
+    end
+    local ttl = redis.call('TTL', KEYS[1])
+    return {count, ttl}
+  `,
+});
+
 
 // ─── RATE LIMITING ────────────────────────────────────────────
 // How it works:
@@ -35,21 +50,9 @@ const RATE_LIMIT = {
 
 async function checkRateLimit(userId) {
   const key = `rate:review:${userId}`;
-  
-  // INCR atomically increments the value and returns new count
-  // If key doesn't exist, Redis creates it with value 0 first
-  // This is atomic — no race conditions even with concurrent requests
-  const count = await redis.incr(key);
-  
-  // Only set expiry on the FIRST request (count === 1)
-  // Setting it every time would reset the window on each request
-  if (count === 1) {
-    await redis.expire(key, RATE_LIMIT.WINDOW_SECONDS);
-  }
-  
-  // Get TTL (time to live) — how many seconds until window resets
-  const ttl = await redis.ttl(key);
-  
+
+  const [count, ttl] = await redis.rateLimitIncr(key, RATE_LIMIT.WINDOW_SECONDS);
+
   return {
     allowed:     count <= RATE_LIMIT.MAX_REVIEWS_PER_HOUR,
     count,
