@@ -1,5 +1,6 @@
 const Redis = require('ioredis');
 const crypto = require('crypto');
+const { PROMPT_SCHEMA_VERSION, MODEL_NAME } = require('./openaiService');
 
 // ─── CONNECT TO REDIS ─────────────────────────────────────────
 // ioredis auto-reconnects if connection drops
@@ -67,38 +68,37 @@ async function checkRateLimit(userId) {
 
 const CACHE_TTL_SECONDS = 3600; // cache results for 1 hour
 
-function getDiffHash(diffContent) {
-  // SHA-256 hash of the diff content
-  // SHA-256: same input ALWAYS produces same 64-char output
-  // Collision probability is astronomically small
-  return crypto
+function getDiffCacheKey(diffContent) {
+  // Model + prompt/schema version are folded into the hash input so that
+  // changing either never serves a review cached under the old prompt.
+  const hash = crypto
     .createHash('sha256')
-    .update(diffContent)
+    .update(`${MODEL_NAME}:${PROMPT_SCHEMA_VERSION}:${diffContent}`)
     .digest('hex');
+
+  return `cache:review:${MODEL_NAME}:${PROMPT_SCHEMA_VERSION}:${hash}`;
 }
 
 async function getCachedReview(diffContent) {
-  const hash = getDiffHash(diffContent);
-  const key  = `cache:review:${hash}`;
-  
+  const key = getDiffCacheKey(diffContent);
+
   const cached = await redis.get(key);
-  
+
   if (cached) {
-    console.log(`Cache HIT for diff hash ${hash.substring(0, 8)}...`);
+    console.log(`Cache HIT for ${key}`);
     return JSON.parse(cached); // Redis stores strings — parse back to object
   }
-  
-  console.log(`Cache MISS for diff hash ${hash.substring(0, 8)}...`);
+
+  console.log(`Cache MISS for ${key}`);
   return null;
 }
 
 async function cacheReview(diffContent, reviewResult) {
-  const hash = getDiffHash(diffContent);
-  const key  = `cache:review:${hash}`;
-  
+  const key = getDiffCacheKey(diffContent);
+
   // Store as JSON string with 1 hour expiry
   await redis.setex(key, CACHE_TTL_SECONDS, JSON.stringify(reviewResult));
-  console.log(`Cached review for diff hash ${hash.substring(0, 8)}...`);
+  console.log(`Cached review for ${key}`);
 }
 
 

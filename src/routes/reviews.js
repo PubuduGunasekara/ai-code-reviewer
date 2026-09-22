@@ -3,7 +3,7 @@ const router = express.Router();
 const { query } = require('../db');
 const { requireAuth }   = require('./auth');
 const GitHubService     = require('../services/githubService');
-const { reviewDiff }  = require('../services/openaiService');
+const { reviewDiff, ReviewValidationError }  = require('../services/openaiService');
 const { createRateLimiter }           = require('../middleware/rateLimiter');
 const { getCachedReview, cacheReview } = require('../services/redisService');
 
@@ -452,10 +452,22 @@ router.post('/:id/process', reviewRateLimiter, async (req, res) => {
   } catch (error) {
     console.error(`Review processing error for ${id}:`, error.message);
 
-    // If GPT-4o fails — update status back to 'pending'
-    // so the user can try again
+    if (error instanceof ReviewValidationError) {
+      // The model's output failed validation — this diff won't succeed on
+      // a plain retry, so mark it failed instead of leaving it retryable.
+      await query(
+        `UPDATE reviews SET status = 'failed', updated_at = NOW()
+         WHERE id = $1 AND user_id = $2`,
+        [id, req.user.id]
+      );
+
+      return res.status(502).json({ error: error.message });
+    }
+
+    // Transient/API error (rate limit, auth, network) — revert to 'pending'
+    // so the user can retry without re-fetching the diff.
     await query(
-      `UPDATE reviews SET status = 'pending', updated_at = NOW() 
+      `UPDATE reviews SET status = 'pending', updated_at = NOW()
        WHERE id = $1 AND user_id = $2`,
       [id, req.user.id]
     );
