@@ -3,8 +3,6 @@ const crypto = require('crypto');
 const { PROMPT_SCHEMA_VERSION, MODEL_NAME } = require('./openaiService');
 
 // ─── CONNECT TO REDIS ─────────────────────────────────────────
-// ioredis auto-reconnects if connection drops
-// This is production-grade behaviour — no manual reconnect logic needed
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
   maxRetriesPerRequest: 3,       // retry failed commands 3 times
   retryStrategy: (times) => {
@@ -64,7 +62,7 @@ async function checkRateLimit(userId) {
 
 
 // ─── CACHING ──────────────────────────────────────────────────
-// Cache GPT-4o review results by diff content hash
+// Cache gpt-4o-mini review results by diff content hash
 // Why hash? The diff can be 50,000 characters — too long for a key
 // A hash is always 64 characters regardless of input size
 // Same diff content → same hash → same cache hit

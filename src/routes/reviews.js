@@ -135,9 +135,8 @@ router.post('/', async (req, res) => {
 });
 
 // POST /api/v1/reviews/fetch-pr
-// Fetch a PR diff from GitHub and create a review request
-// This is step 1 of the review process — get the diff
-// Step 2 (GPT-4o analysis) comes next session
+// Fetch a PR diff from GitHub and create a pending review record.
+// The AI review itself runs separately via POST /:id/process.
 router.post('/fetch-pr', async (req, res) => {
   try {
     const { repository_id, pr_number } = req.body;
@@ -182,7 +181,7 @@ router.post('/fetch-pr', async (req, res) => {
     const files = github.parseDiffIntoFiles(rawDiff);
 
     // Create a review record in the database
-    // Status is 'pending' — GPT-4o hasn't reviewed it yet
+    // Status is 'pending' — gpt-4o-mini hasn't reviewed it yet
     const reviewResult = await query(
       `INSERT INTO reviews
          (user_id, repository_id, pr_number, pr_title,
@@ -304,7 +303,7 @@ router.post('/:id/process', reviewRateLimiter, async (req, res) => {
 
     console.log(`Processing review ${id} for PR #${review.pr_number}`);
 
-    // ── 3.5 Check cache before calling GPT-4o ─────────────────
+    // ── 3.5 Check cache before calling gpt-4o-mini ─────────────────
     // Same diff reviewed before? Return cached result instantly.
     // Saves money (no API cost) and time (no 5-second wait)
     const cached = await getCachedReview(review.diff_content);
@@ -364,7 +363,7 @@ router.post('/:id/process', reviewRateLimiter, async (req, res) => {
       });
     }
 
-    // ── 4. Send diff to GPT-4o ────────────────────────────────
+    // ── 4. Send diff to gpt-4o-mini ────────────────────────────────
     const { review: aiReview, processingTimeMs, model } = 
       await reviewDiff(
         review.diff_content,
