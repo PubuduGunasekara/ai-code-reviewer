@@ -4,6 +4,7 @@
 
 ### Connect your GitHub account, pick an open pull request, and get an instant AI review with severity-tagged findings
 
+[![CI](https://github.com/PubuduGunasekara/ai-code-reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/PubuduGunasekara/ai-code-reviewer/actions)
 [![Live Demo](https://img.shields.io/badge/Live_Demo-Online-brightgreen?style=flat-square&logo=amazonaws&logoColor=white)](https://main.d3dm91k4g9mtr9.amplifyapp.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-Express_5-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
@@ -43,7 +44,7 @@ A short walkthrough video is coming soon.
 
 Code review is one of the slowest steps in shipping software. Pull requests often sit for a day or more waiting for a human to look at them.
 
-This app gives you a first-pass review in seconds. You sign in with your GitHub account, choose one of your open pull requests, and the app reads the code changes and returns a structured review: each finding has a severity (critical, high, medium, low), a category (security, performance, logic, style), an explanation, and where possible a suggested fix. It is meant to catch the obvious issues quickly so human reviewers can focus on the harder ones.
+This app gives you a first-pass review in seconds. You sign in with your GitHub account, choose one of your open pull requests, and the app reads the code changes and returns a structured review: each finding has a severity (critical, high, medium, low, info), a category (security, performance, bug, error-handling, style, architecture), an explanation, and where possible a suggested fix. It is meant to catch the obvious issues quickly so human reviewers can focus on the harder ones.
 
 ---
 
@@ -52,11 +53,12 @@ This app gives you a first-pass review in seconds. You sign in with your GitHub 
 The interesting parts are less about the AI call and more about building a reliable product around it:
 
 - **Real GitHub login.** Authentication uses GitHub OAuth (Passport), and sessions are stored in PostgreSQL, so a login survives a server restart.
-- **Structured output from the model.** Instead of free-form text, the app asks `gpt-4o-mini` for a strict JSON shape (severity, category, message, suggestion). That makes the results predictable enough to render as a real UI.
-- **Cost and abuse protection.** The review endpoint is the expensive one, so it is rate limited per user using Redis. If Redis is briefly unavailable, the limiter fails open rather than taking the whole app down.
-- **Handling large diffs.** Pull requests can be big. The app validates and trims diffs that would not fit the model's context window instead of failing outright.
-- **Caching.** Past reviews are stored and served quickly so re-opening a PR does not pay the cost again.
+- **Structured output the model can't dodge.** The review request uses OpenAI's Structured Outputs (`response_format: json_schema`, `strict: true`) with an explicit schema — enums for severity and category, every field required (`comment`, `suggestion`, `cwe`, not loosely-named equivalents). If the model refuses or returns something that fails validation (an out-of-range score, too many issues), the review is marked failed and the real error is surfaced — never patched with a made-up score or an empty issue list.
+- **Cost and abuse protection.** The review endpoint is the expensive one, so it's rate limited per user in Redis with a fixed one-hour window, enforced atomically by a single Lua script (`INCR` + first-time `EXPIRE` in one round trip, so a crash between the two steps can't lock a user out forever). If Redis is briefly unavailable, the limiter fails open rather than taking the whole app down.
+- **Handling large diffs.** Pull requests can be big. The app truncates diffs that would not fit the model's context window instead of failing outright, with a visible marker so the review makes clear it wasn't looking at the whole thing.
+- **Caching, precisely.** A review is cached in Redis by a hash of the diff plus the model name and prompt/schema version, TTL 1 hour — so shipping a prompt or schema change never serves a review generated under the old rules. Every review result is kept permanently in PostgreSQL; Redis is a speed layer, not the source of truth.
 - **Sensible security defaults.** Helmet for headers and a CORS allowlist for the frontend origin.
+- **Tested.** 19 backend tests (`node --test` + `supertest`) cover the structured-output handling, diff truncation, the rate limiter middleware, the atomic rate-limit script, and cache-key invalidation — see the CI badge above.
 
 ---
 
@@ -77,7 +79,7 @@ graph TB
     API -->|review results| FE
 ```
 
-The flow: you sign in through GitHub OAuth, the frontend calls the Express API, the API pulls your repositories and pull requests from the GitHub API, fetches the diff for the PR you choose, sends it to the model with a JSON output format, stores the result in PostgreSQL, caches it in Redis, and returns the findings to the UI.
+The flow: you sign in through GitHub OAuth, the frontend calls the Express API, the API pulls your repositories and pull requests from the GitHub API, fetches the diff for the PR you choose, sends it to the model with a strict JSON-schema output format, stores the result in PostgreSQL, caches it in Redis, and returns the findings to the UI.
 
 ---
 
@@ -87,12 +89,13 @@ The flow: you sign in through GitHub OAuth, the frontend calls the Express API, 
 |---|---|
 | Frontend | React 19, Vite 8 (hosted on AWS Amplify) |
 | Backend | Node.js, Express 5 (deployed on AWS EC2) |
-| AI | OpenAI `gpt-4o-mini` (JSON response format) |
+| AI | OpenAI `gpt-4o-mini`, Structured Outputs (`json_schema`, `strict: true`) |
 | Auth | GitHub OAuth via Passport, sessions in PostgreSQL |
 | Database | PostgreSQL 15 |
-| Cache and rate limiting | Redis 7 (ioredis) |
+| Cache and rate limiting | Redis 7 (ioredis), atomic via a Lua script |
 | GitHub integration | Octokit REST |
 | Security | Helmet, CORS allowlist |
+| Testing / CI | `node --test` + `supertest` (19 tests), GitHub Actions |
 | Packaging | Docker, Docker Compose |
 | Deployment | Frontend on AWS Amplify, backend API on AWS EC2 |
 
@@ -101,7 +104,7 @@ The flow: you sign in through GitHub OAuth, the frontend calls the Express API, 
 ## Getting Started
 
 ### Prerequisites
-- Node.js 18 or newer
+- Node.js 22 (see `client/.nvmrc`)
 - Docker and Docker Compose (for PostgreSQL and Redis)
 - A GitHub OAuth app (Client ID and Secret)
 - An OpenAI API key
@@ -109,18 +112,18 @@ The flow: you sign in through GitHub OAuth, the frontend calls the Express API, 
 ### 1. Backend setup
 ```bash
 npm install
-cp .env.example .env     # then fill in the values (see the table below)
+# create a .env file in the project root — see Environment Variables below
 docker compose up -d     # starts PostgreSQL and Redis
 npm run migrate          # creates the database tables
 npm run dev              # starts the API
 ```
-The API runs on the port set by `PORT` (for example, http://localhost:8080).
+The API runs on the port set by `PORT` (defaults to 3001 if unset).
 
 ### 2. Frontend setup
 ```bash
 cd client
 npm install
-npm run dev              # starts the React app on http://localhost:5173
+npm run dev              # starts the React app on http://localhost:3000, proxying /api and /auth to the backend
 ```
 
 ---
@@ -183,19 +186,33 @@ A top-level `GET /health` endpoint reports service health.
 ├── src/
 │   ├── index.js        # Express app setup and middleware
 │   ├── routes/         # auth, repositories, reviews
-│   ├── services/       # OpenAI service, GitHub service
+│   ├── services/       # OpenAI service, GitHub service, Redis service
 │   ├── middleware/     # auth guard, rate limiter
 │   └── db/             # migrations and queries
-├── client/             # React + Vite frontend
+├── examples/
+│   └── vulnerable-sample.js  # intentionally insecure demo input for the reviewer, never imported by the app
+├── test/               # node --test suite (OpenAI/Redis mocked at the module boundary)
+├── client/              # React + Vite frontend
+├── .github/workflows/   # CI: backend tests, frontend lint + build
 ├── docker-compose.yml  # PostgreSQL + Redis
 └── Dockerfile
 ```
 
 ---
 
+## Known Limitations and Next Steps
+
+- **Diff truncation is character-based, not token-based**, and cuts the diff at a fixed length rather than prioritizing the most relevant files — a large diff can lose its last (possibly important) files entirely.
+- **One model call per review.** There's no chunking or multi-pass review for very large PRs, so review quality can degrade as a diff approaches the truncation limit.
+- **Fixed-window rate limiting**, so bursts around a window boundary are possible (e.g. close to double the hourly quota split across the boundary).
+- **No data retention policy.** Full diffs and review results are kept in PostgreSQL indefinitely — there's no cleanup or archival job yet.
+- **Manual deployment.** Backend deployment to EC2 is a manual Docker rebuild + restart; CI runs tests and builds but doesn't deploy.
+
+---
+
 ## What I Learned
 
-This project was about building a dependable product around a language model, not just calling one. The lessons that stuck: getting structured, predictable output from a model, protecting an expensive endpoint with rate limiting that fails safely, persisting OAuth sessions, working within a model's context limits, and caching to keep costs and latency down.
+This project was about building a dependable product around a language model, not just calling one. The lessons that stuck: the difference between "the model returned JSON" and "the model returned this exact, schema-validated shape" (and why silently defaulting invalid fields is worse than failing the request); protecting an expensive endpoint with rate limiting that fails safely — and making the increment-then-expire step actually atomic instead of just usually working; persisting OAuth sessions; working within a model's context limits; and caching to keep costs and latency down without ever serving a review generated under a stale prompt.
 
 ---
 
