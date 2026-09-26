@@ -13,9 +13,7 @@ const createRateLimiter = (options = {}) => {
     try {
       const result = await checkRateLimit(req.user.id);
 
-      // Add rate limit info to response headers
-      // This is standard practice — clients can read these
-      // to know how many requests they have left
+      // Expose remaining quota so clients can back off before hitting 429
       res.setHeader('X-RateLimit-Limit',     result.limit);
       res.setHeader('X-RateLimit-Remaining', result.remaining);
       res.setHeader('X-RateLimit-Reset',     result.resetInSecs);

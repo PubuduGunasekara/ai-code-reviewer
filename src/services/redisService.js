@@ -1,9 +1,8 @@
 const Redis = require('ioredis');
 const crypto = require('crypto');
+const { PROMPT_SCHEMA_VERSION, MODEL_NAME } = require('./openaiService');
 
 // ─── CONNECT TO REDIS ─────────────────────────────────────────
-// ioredis auto-reconnects if connection drops
-// This is production-grade behaviour — no manual reconnect logic needed
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
   maxRetriesPerRequest: 3,       // retry failed commands 3 times
   retryStrategy: (times) => {
@@ -18,6 +17,21 @@ const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
 redis.on('connect',      () => console.log('Redis connected'));
 redis.on('error',  (err) => console.error('Redis error:', err.message));
 redis.on('reconnecting', () => console.log('Redis reconnecting...'));
+
+// INCR + EXPIRE as two round trips leaves a gap: if the process dies or the
+// connection drops between them, the key never gets a TTL and that user is
+// rate limited forever. Doing both inside one Lua script makes it atomic.
+redis.defineCommand('rateLimitIncr', {
+  numberOfKeys: 1,
+  lua: `
+    local count = redis.call('INCR', KEYS[1])
+    if count == 1 then
+      redis.call('EXPIRE', KEYS[1], ARGV[1])
+    end
+    local ttl = redis.call('TTL', KEYS[1])
+    return {count, ttl}
+  `,
+});
 
 
 // ─── RATE LIMITING ────────────────────────────────────────────
@@ -34,21 +48,9 @@ const RATE_LIMIT = {
 
 async function checkRateLimit(userId) {
   const key = `rate:review:${userId}`;
-  
-  // INCR atomically increments the value and returns new count
-  // If key doesn't exist, Redis creates it with value 0 first
-  // This is atomic — no race conditions even with concurrent requests
-  const count = await redis.incr(key);
-  
-  // Only set expiry on the FIRST request (count === 1)
-  // Setting it every time would reset the window on each request
-  if (count === 1) {
-    await redis.expire(key, RATE_LIMIT.WINDOW_SECONDS);
-  }
-  
-  // Get TTL (time to live) — how many seconds until window resets
-  const ttl = await redis.ttl(key);
-  
+
+  const [count, ttl] = await redis.rateLimitIncr(key, RATE_LIMIT.WINDOW_SECONDS);
+
   return {
     allowed:     count <= RATE_LIMIT.MAX_REVIEWS_PER_HOUR,
     count,
@@ -60,45 +62,44 @@ async function checkRateLimit(userId) {
 
 
 // ─── CACHING ──────────────────────────────────────────────────
-// Cache GPT-4o review results by diff content hash
+// Cache gpt-4o-mini review results by diff content hash
 // Why hash? The diff can be 50,000 characters — too long for a key
 // A hash is always 64 characters regardless of input size
 // Same diff content → same hash → same cache hit
 
 const CACHE_TTL_SECONDS = 3600; // cache results for 1 hour
 
-function getDiffHash(diffContent) {
-  // SHA-256 hash of the diff content
-  // SHA-256: same input ALWAYS produces same 64-char output
-  // Collision probability is astronomically small
-  return crypto
+function getDiffCacheKey(diffContent) {
+  // Model + prompt/schema version are folded into the hash input so that
+  // changing either never serves a review cached under the old prompt.
+  const hash = crypto
     .createHash('sha256')
-    .update(diffContent)
+    .update(`${MODEL_NAME}:${PROMPT_SCHEMA_VERSION}:${diffContent}`)
     .digest('hex');
+
+  return `cache:review:${MODEL_NAME}:${PROMPT_SCHEMA_VERSION}:${hash}`;
 }
 
 async function getCachedReview(diffContent) {
-  const hash = getDiffHash(diffContent);
-  const key  = `cache:review:${hash}`;
-  
+  const key = getDiffCacheKey(diffContent);
+
   const cached = await redis.get(key);
-  
+
   if (cached) {
-    console.log(`Cache HIT for diff hash ${hash.substring(0, 8)}...`);
+    console.log(`Cache HIT for ${key}`);
     return JSON.parse(cached); // Redis stores strings — parse back to object
   }
-  
-  console.log(`Cache MISS for diff hash ${hash.substring(0, 8)}...`);
+
+  console.log(`Cache MISS for ${key}`);
   return null;
 }
 
 async function cacheReview(diffContent, reviewResult) {
-  const hash = getDiffHash(diffContent);
-  const key  = `cache:review:${hash}`;
-  
+  const key = getDiffCacheKey(diffContent);
+
   // Store as JSON string with 1 hour expiry
   await redis.setex(key, CACHE_TTL_SECONDS, JSON.stringify(reviewResult));
-  console.log(`Cached review for diff hash ${hash.substring(0, 8)}...`);
+  console.log(`Cached review for ${key}`);
 }
 
 

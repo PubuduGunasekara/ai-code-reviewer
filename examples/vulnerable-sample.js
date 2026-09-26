@@ -1,3 +1,7 @@
+// Intentionally insecure demo input used to show what the AI reviewer catches
+// (SQL injection, hardcoded credentials, plaintext password comparison).
+// Never imported by the app — kept only as sample input for the demo.
+
 const express = require('express');
 const router = express.Router();
 const { Pool } = require('pg');
